@@ -96,7 +96,7 @@ left_column, right_column = st.columns(2)
 
 with left_column:
     st.subheader("Original Image")
-    st.image(image_to_display(original_image), use_container_width=True)
+    st.image(image_to_display(original_image), width="stretch")
     st.caption(f"Dimensions: {get_image_dimensions(original_image)}")
     st.caption(f"File size: {file_size_bytes / (1024 * 1024):.2f} MB")
 
@@ -156,14 +156,14 @@ except Exception as exc:  # noqa: BLE001
 
 with right_column:
     st.subheader("Processed Image")
-    st.image(image_to_display(processed_image), use_container_width=True)
+    st.image(image_to_display(processed_image), width="stretch")
     st.caption(f"Dimensions: {get_image_dimensions(processed_image)}")
 
     if operation == "Resize":
         st.caption("The resize operation returns the selected output dimensions.")
 
     histogram_figure = plot_histogram(processed_image)
-    st.pyplot(histogram_figure, use_container_width=True)
+    st.pyplot(histogram_figure, width="stretch")
 
     processed_bytes = image_to_png_bytes(processed_image)
     st.download_button(
