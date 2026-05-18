@@ -114,6 +114,95 @@ def process_current_image(image: np.ndarray, operation: str) -> np.ndarray:
     return image
 
 
+def _operation_controls(operation: str, image: np.ndarray) -> dict:
+    """Render sidebar controls for a single operation and return its parameters."""
+
+    if operation == "Binary Conversion":
+        return {"threshold": st.sidebar.slider("Threshold", 0, 255, 127, key="threshold")}
+
+    if operation == "Gaussian Blur":
+        return {
+            "kernel_size": st.sidebar.slider("Kernel size", 1, 31, 5, step=2, key="gaussian_kernel"),
+            "sigma": st.sidebar.slider("Sigma", 0.1, 10.0, 1.0, 0.1, key="gaussian_sigma"),
+        }
+
+    if operation == "Median Filter":
+        return {"kernel_size": st.sidebar.slider("Kernel size", 1, 31, 5, step=2, key="median_kernel")}
+
+    if operation == "Canny Edge Detection":
+        return {
+            "threshold1": st.sidebar.slider("Threshold 1", 0, 255, 100, key="canny_threshold1"),
+            "threshold2": st.sidebar.slider("Threshold 2", 0, 255, 200, key="canny_threshold2"),
+        }
+
+    if operation == "Brightness & Contrast":
+        return {
+            "brightness": st.sidebar.slider("Brightness", -100, 100, 0, key="brightness"),
+            "contrast": st.sidebar.slider("Contrast", 0.5, 3.0, 1.0, 0.1, key="contrast"),
+        }
+
+    if operation == "Resize":
+        image_height, image_width = image.shape[:2]
+        return {
+            "width": st.sidebar.number_input("Width", min_value=1, value=int(image_width), key="resize_width"),
+            "height": st.sidebar.number_input("Height", min_value=1, value=int(image_height), key="resize_height"),
+        }
+
+    return {}
+
+
+def _apply_operation(image: np.ndarray, operation: str, params: dict) -> np.ndarray:
+    """Apply one selected operation using the provided parameters."""
+
+    if operation == "Original":
+        return image
+
+    if operation == "Grayscale Conversion":
+        return grayscale_conversion(image)
+
+    if operation == "Binary Conversion":
+        return binary_conversion(image, threshold=int(params.get("threshold", 127)))
+
+    if operation == "Gaussian Blur":
+        return apply_gaussian_blur(
+            image,
+            kernel_size=int(params.get("kernel_size", 5)),
+            sigma=float(params.get("sigma", 1.0)),
+        )
+
+    if operation == "Median Filter":
+        return apply_median_blur(image, kernel_size=int(params.get("kernel_size", 5)))
+
+    if operation == "Sobel Edge Detection":
+        return sobel_edge_detection(image)
+
+    if operation == "Canny Edge Detection":
+        return canny_edge_detection(
+            image,
+            threshold1=int(params.get("threshold1", 100)),
+            threshold2=int(params.get("threshold2", 200)),
+        )
+
+    if operation == "Brightness & Contrast":
+        return adjust_brightness_contrast(
+            image,
+            brightness=int(params.get("brightness", 0)),
+            contrast=float(params.get("contrast", 1.0)),
+        )
+
+    if operation == "Histogram Equalization":
+        return histogram_equalization(image)
+
+    if operation == "Resize":
+        return resize_image(
+            image,
+            width=int(params.get("width", image.shape[1])),
+            height=int(params.get("height", image.shape[0])),
+        )
+
+    return image
+
+
 def run_app() -> None:
     """Render the Streamlit app."""
 
@@ -124,16 +213,18 @@ def run_app() -> None:
 
     st.markdown(
         """
-        Use the sidebar to upload an image and choose a processing operation.
-        The app supports grayscale, binary, filtering, edge detection, brightness/contrast,
-        histogram equalization, resizing, histogram visualization, and download.
+        Use the sidebar to upload an image and choose one or more processing techniques.
+        Each selected technique is rendered below in its own section so you can scroll,
+        compare, and deselect techniques without losing the uploaded image.
         """
     )
 
-    operation = st.sidebar.selectbox("Choose an operation", OPERATIONS, key="operation")
-
-    st.sidebar.markdown("---")
-    st.sidebar.write(OPERATION_DESCRIPTIONS[operation])
+    selected_operations = st.sidebar.multiselect(
+        "Choose processing techniques",
+        [operation for operation in OPERATIONS if operation != "Original"],
+        default=["Grayscale Conversion"],
+        key="operations",
+    )
 
     uploaded_file = st.sidebar.file_uploader("Upload a JPG, JPEG, or PNG image", type=["jpg", "jpeg", "png"], key="uploaded_image")
 
@@ -165,7 +256,21 @@ def run_app() -> None:
     if file_size_bytes > 10 * 1024 * 1024:
         st.warning("The uploaded image is larger than 10 MB. Processing may be slower.")
 
-    st.info(OPERATION_DESCRIPTIONS[operation])
+    operation_params: dict[str, dict] = {}
+    st.sidebar.markdown("---")
+    if selected_operations:
+        st.sidebar.write("Select or deselect techniques to compare multiple results.")
+        for operation in selected_operations:
+            with st.sidebar.expander(operation, expanded=operation in {"Grayscale Conversion", "Binary Conversion"}):
+                st.caption(OPERATION_DESCRIPTIONS[operation])
+                operation_params[operation] = _operation_controls(operation, original_image)
+    else:
+        st.sidebar.write("Select one or more techniques to generate results below.")
+
+    if selected_operations:
+        st.info("Selected techniques will appear one below another as you scroll down.")
+    else:
+        st.info("Choose one or more image processing techniques from the sidebar.")
 
     left_column, right_column = st.columns(2)
 
@@ -175,30 +280,40 @@ def run_app() -> None:
         st.caption(f"Dimensions: {get_image_dimensions(original_image)}")
         st.caption(f"File size: {file_size_bytes / (1024 * 1024):.2f} MB")
 
-    try:
-        processed_image = process_current_image(original_image, operation)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Processing failed: {exc}")
-        return
-
     with right_column:
-        st.subheader("Processed Image")
-        st.image(image_to_display(processed_image), width="stretch")
-        st.caption(f"Dimensions: {get_image_dimensions(processed_image)}")
+        if not selected_operations:
+            st.subheader("Processed Image")
+            st.info("No processing technique selected yet.")
+            return
 
-        if operation == "Resize":
-            st.caption("The resize operation returns the selected output dimensions.")
+        for operation in selected_operations:
+            st.markdown("---")
+            st.subheader(operation)
+            st.caption(OPERATION_DESCRIPTIONS[operation])
 
-        histogram_figure = plot_histogram(processed_image)
-        st.pyplot(histogram_figure, width="stretch")
+            try:
+                processed_image = _apply_operation(original_image, operation, operation_params.get(operation, {}))
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Processing failed for {operation}: {exc}")
+                continue
 
-        processed_bytes = image_to_png_bytes(processed_image)
-        st.download_button(
-            label="Download processed image",
-            data=processed_bytes,
-            file_name=f"processed_{operation.lower().replace(' & ', '_').replace(' ', '_')}.png",
-            mime="image/png",
-        )
+            st.image(image_to_display(processed_image), width="stretch")
+            st.caption(f"Dimensions: {get_image_dimensions(processed_image)}")
+
+            if operation == "Resize":
+                st.caption("The resize operation returns the selected output dimensions.")
+
+            histogram_figure = plot_histogram(processed_image)
+            st.pyplot(histogram_figure, width="stretch")
+
+            processed_bytes = image_to_png_bytes(processed_image)
+            st.download_button(
+                label=f"Download {operation.lower()} image",
+                data=processed_bytes,
+                file_name=f"processed_{operation.lower().replace(' & ', '_').replace(' ', '_')}.png",
+                mime="image/png",
+                key=f"download_{operation}",
+            )
 
 
 if __name__ == "__main__":
